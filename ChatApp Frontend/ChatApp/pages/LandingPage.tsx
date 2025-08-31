@@ -1,27 +1,42 @@
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Button } from "../components/button";
 import { CopyIcon } from "../icons/CopyIcon";
 import { joinRoom, createRoom , leaveRoom } from "../util/backendCalls";
 import { toast, ToastContainer, Bounce } from "react-toastify";
 import { MessageBubble } from "../components/messageComponent";
 
+
 export const ChatRoom = () => {
   const [roomId, setRoomId] = useState<string | null>(null);
   const roomIdRef = useRef<HTMLInputElement | null>(null);
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [messages, setMessages] = useState<
-    { text: string; self: boolean; time: string; user: string }[]
+    { text: string; time: string; user: string; isSelf: boolean }[]
   >([]);
+  const [users, setUsers] = useState<number>(0);
+  const [username, setUsername] = useState<string>("");
+
+const fetchActiveUsers = async (roomId: string | null) => {
+  const res = await fetch('http://localhost:3000/activeUsers', {
+    method: 'POST',
+    body: JSON.stringify({ roomId }),
+    headers: { "Content-Type": "application/json" }
+  });
+
+  return res; // Return the response for further processing
+};
 
   // Setup WebSocket
   useEffect(() => {
     const ws = new WebSocket("ws://localhost:8080");
-    const roomId = localStorage.getItem("roomID");
+    const roomId = localStorage.getItem("roomID") || roomIdRef.current?.value;
+    if (!roomId) return;
     console.log("Attempting to join room:", roomId);
     setMessages([]);
 
     ws.onopen = () => {
       if (roomId) {
+        console.log("WebSocket connection established");
         ws.send(JSON.stringify({ type: "join", roomId }));
         console.log("Joined room:", roomId);
       }
@@ -32,7 +47,7 @@ export const ChatRoom = () => {
       if (data.type === "message") {
         setMessages((prev) => [
           ...prev,
-          { text: data.message, self: false, user: data.user, time: data.time },
+          { text: data.message, isSelf: false, user: data.user || "Other User", time: data.time },
         ]);
       }
     };
@@ -41,8 +56,9 @@ export const ChatRoom = () => {
 
     return () => {
       ws.close();
+      localStorage.removeItem("roomID");
     };
-  }, [roomId]);
+  }, []);
 
   // Copy Room ID
   const copyText = () => {
@@ -56,6 +72,22 @@ export const ChatRoom = () => {
         console.error("Failed to copy: ", err);
       });
   };
+
+  // Fetch active users when roomId changes
+  useEffect(() => {
+    const roomId = localStorage.getItem("roomID");
+    if (roomId) {
+      const res = async () => {
+        const response = await fetchActiveUsers(roomId);
+        const data = await response.json();
+        setUsers(data.numberOfUsers);
+        if (roomIdRef.current) {
+          roomIdRef.current.value = roomId;
+        }
+      };
+      res();
+    }
+  });
 
   return (
     <div className="bg-[#000000] h-screen">
@@ -76,7 +108,7 @@ export const ChatRoom = () => {
       <div className="flex flex-col w-full">
         <div className="flex flex-row justify-between">
           <div className="items-start p-4">
-            <Button label="Create Room" onClick={() => createRoom({ ref: roomIdRef, setRoomId })} className="text-white bg-[#222222] hover:text-green-400" />
+            <Button label="Create Room" onClick={() => createRoom({ socket, ref: roomIdRef, setRoomId, user: username, type: "join" })} className="text-white bg-[#222222] hover:text-green-400" />
           </div>
           <div className="items-end flex flex-row p-4">
             <div className="text-center text-white items-end">
@@ -85,26 +117,40 @@ export const ChatRoom = () => {
                 <input
                   className="bg-[#222222] text-center text-white py-1 px-2 rounded-lg w-[10vw]"
                   type="text"
+                  value={roomIdRef.current?.value}
                   ref={roomIdRef}
                 />
                 <Button onClick={copyText} icon={<CopyIcon />} />
               </div>
             </div>
             <div className="items-end">
-              <Button label="Join Room" onClick={() => joinRoom({ ref: roomIdRef, setRoomId })} className="text-white bg-[#222222] hover:text-green-400" />
+              {username && (
+                <Button label="Join Room" onClick={() => joinRoom({ socket , ref: roomIdRef , setRoomId , user:username, type: "join" })} className="text-white bg-[#222222] hover:text-green-400" />
+              )}
             </div>
           </div>
         </div>
         <div className="w-full flex justify-end pr-4 ">
-          {roomId && (
-            <Button label="Leave Room" className="text-white hover:text-red-400" onClick={() => leaveRoom(roomId)} />
+          <div className="mr-2">
+            <input
+              className="bg-[#222222] text-center text-white py-1 px-2 rounded-lg w-[10vw]"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Enter your name"
+            />
+          </div>
+          {roomIdRef.current?.value && (
+            <Button label="Leave Room" className="text-white hover:text-red-400" onClick={() => leaveRoom(roomIdRef.current?.value || "")} />
+            
           )}
         </div>
       </div>
 
       {/* Chat Interface */}
-      <div className="flex-grow items-center justify-center h-[80vh] w-full text-center justify-center">
-        <ChatInterface socket={socket} messages={messages} setMessages={setMessages} />
+      <div className="flex flex-col">
+        <div className="text-white pl-5">Active Users : {users}</div>
+        <div className="flex-grow items-center justify-center h-[70vh] w-full text-center justify-center"><ChatInterface socket={socket} messages={messages} setMessages={setMessages} /></div>
       </div>
     </div>
   );
@@ -117,9 +163,9 @@ const ChatInterface = ({
   setMessages,
 }: {
   socket: WebSocket | null;
-  messages: { text: string; self: boolean; time: string; user: string }[];
+  messages: { text: string; self: boolean; time: string; user: string; isSelf: boolean }[];
   setMessages: React.Dispatch<
-    React.SetStateAction<{ text: string; self: boolean; time: string; user: string }[]>
+    React.SetStateAction<{ text: string; self: boolean; time: string; user: string ; isSelf: boolean }[]>
   >;
 }) => {
   const messageRef = useRef<HTMLInputElement>(null);
@@ -138,11 +184,11 @@ const ChatInterface = ({
       const hours = now.getHours().toString();   // 0 - 23
       const minutes = now.getMinutes().toString(); // 0 - 59
       const time = hours+":"+minutes;
-      socket.send(JSON.stringify({ type: "message", roomId, message, time }));
+      socket.send(JSON.stringify({ type: "message", roomId, message, time , isSelf: true }));
 
       setMessages((prev) => [
         ...prev,
-        { text: message, self: true, user: "self", time: time },
+        { text: message, self: true, user: "self", time: time, isSelf: true },
       ]);
 
       if (messageRef.current) {
@@ -156,10 +202,10 @@ const ChatInterface = ({
   return (
     <div>
       {roomID ? (
-        <div className="max-h-[80vh] min-h-[80vh] flex flex-col bg-[#1A1A1A] rounded-xl m-5">
+        <div className="max-h-[75vh] min-h-[75vh] flex flex-col bg-[#1A1A1A] rounded-xl m-5">
           <div className="flex-1 overflow-y-auto p-2">
             {messages.map((message, index) => (
-              <MessageBubble key={index} text={message.text} user={message.user} time={message.time} />
+              <MessageBubble key={index} text={message.text} user={message.user} time={message.time} isSelf={message.self} />
             ))}
           </div>
 
