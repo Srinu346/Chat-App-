@@ -64,6 +64,7 @@ export function joinRoom(joinRoomProp: joinRoomProps) {
     joinRoomProp.socket?.send(JSON.stringify({ type: "join", roomId: roomID, user }));
 
     localStorage.setItem("roomID", roomID);
+    localStorage.setItem("username", user);
     roomID && joinRoomProp.ref && (joinRoomProp.ref.current.value = roomID);
     joinRoomProp.setRoomId && roomID && joinRoomProp.setRoomId(joinRoomProp.ref.current.value);
     console.log("Join room called");
@@ -81,10 +82,13 @@ export function createRoom(createRoomProp: createRoomProps) {
         roomID += roomCode.charAt(Math.floor(Math.random() * roomCode.length));
     }
 
-    createRoomProp.socket?.send(JSON.stringify({ type: "create", roomId: roomID }));
+    createRoomProp.socket?.send(JSON.stringify({ type: "join", roomId: roomID, user: createRoomProp.user }));
 
-    createRoomProp.ref && (createRoomProp.ref.current.value = roomID);
+    if (createRoomProp.ref && createRoomProp.ref.current) {
+        createRoomProp.ref.current.value = roomID;
+    }
     localStorage.setItem("roomID", roomID);
+    localStorage.setItem("username", createRoomProp.user);
     console.log("Create room called");
     toast.success("Room Created Successfully!");
     window.location.reload();
@@ -109,6 +113,7 @@ export const leaveRoom = (roomID: string) => {
         };
     }
     localStorage.removeItem("roomID");
+    localStorage.removeItem("username");
     window.location.reload();
     toast.success("Left Room Successfully!");
     window.location.reload();
